@@ -8,7 +8,7 @@ STS API in order to produce short-lived tokens for interacting with GitHub.
 **_The ultimate goal of this App is to wholly eliminate the need for GitHub
 Personal Access Tokens (aka PATs)._**
 
-The original [blog post](https://www.chainguard.dev/unchained/the-end-of-github-pats-you-cant-leak-what-you-dont-have).
+The original [blog post](https://www.chainguard.dev/unchained/the-end-of-github-pats-you-cant-leak-what-you-dont-have) and the page on [Chainguard Academy](https://edu.chainguard.dev/open-source/octo-sts/overview/).
 
 ## Setting up workload trust
 
@@ -35,6 +35,8 @@ Here is a simple example that allows the GitHub actions workflows in
 interact with issues:
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/octo-sts/app/refs/heads/main/pkg/octosts/octosts.TrustPolicy.json
+
 issuer: https://token.actions.githubusercontent.com
 subject: repo:chainguard-dev/foo:ref:refs/heads/main
 
@@ -47,6 +49,8 @@ The Trust Policy can also match the issuer, subject, and even custom claims with
 regular expressions. For example:
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/octo-sts/app/refs/heads/main/pkg/octosts/octosts.TrustPolicy.json
+
 issuer: https://accounts.google.com
 subject_pattern: "[0-9]+"
 claim_pattern:
@@ -68,13 +72,8 @@ Chainguard email address to federate and read the repo contents.
 
 ##### VSCode
 
-We recommend using [vscode-yaml](https://github.com/redhat-developer/vscode-yaml?tab=readme-ov-file):
-
-```json
-"yaml.schemas": {
-    "https://raw.githubusercontent.com/octo-sts/app/refs/heads/main/pkg/octosts/octosts.TrustPolicy.json": "/.github/chainguard/*"
-}
-```
+We recommend using [vscode-yaml](https://github.com/redhat-developer/vscode-yaml?tab=readme-ov-file).
+This will read the `# yaml-language-server: $schema=...` header and provide code completion.
 
 ### Federating a token
 
@@ -97,6 +96,66 @@ policy.
 
 Our release cadence at this moment is set to when is needed, meaning if we have a bug fix or a new feature
 we will might make a new release.
+
+### Container images
+
+For self-hosting, container images are published to
+`ghcr.io/octo-sts/app` and `ghcr.io/octo-sts/webhook`. A release tagged `vX.Y.Z`
+is pushed as `X.Y.Z` and `latest`.
+
+Images are signed keylessly with [cosign](https://github.com/sigstore/cosign),
+using the GitHub Actions workflow that built them as the signing identity. Verify
+one before use:
+
+```shell
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/octo-sts/app/\.github/workflows/container\.yaml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/octo-sts/app:latest
+```
+
+### Multi-App Routing
+
+When multiple GitHub Apps are configured (`GITHUB_APP_IDS` has more than one
+entry), OctoSTS distributes token exchanges across installations using
+capacity-aware fairshare routing. Trust policies with `checks: write` require
+sticky routing — the same `(scope, identity)` pair must always receive a token
+from the same installation because GitHub check runs can only be updated by the
+app that created them.
+
+#### Sticky Store
+
+The sticky store persists these `(scope, identity) -> installation` mappings so
+they survive process restarts and deploys. Without it, checks:write policies fall
+back to round-robin (non-sticky) routing which may break check-run updates.
+
+**Firestore backend** (recommended for GCP deployments):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OCTOSTS_STICKY_STORE` | (empty) | Set to `firestore` to enable |
+| `OCTOSTS_STICKY_STORE_FIRESTORE_PROJECT` | running GCP project | Firestore GCP project |
+| `OCTOSTS_STICKY_STORE_FIRESTORE_COLLECTION` | `sticky-routes` | Firestore collection name |
+| `OCTOSTS_STICKY_STORE_FIRESTORE_TTL` | `1h` | TTL for inactive mappings |
+
+Active mappings have their TTL refreshed on every use, so they never expire.
+Only mappings unused for the TTL duration are automatically cleaned up.
+
+Single-app deployments (`GITHUB_APP_IDS` has one entry) do not need sticky
+routing and can ignore these settings.
+
+### GitHub Enterprise Server (GHES)
+
+OctoSTS can be deployed against a GitHub Enterprise Server instance by setting
+the `GITHUB_BASE_URL` environment variable to your GHES API endpoint:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GITHUB_BASE_URL` | (empty — uses `https://api.github.com`) | GitHub API base URL for GHES (e.g. `https://github.example.com/api/v3`) |
+
+The URL must use HTTPS. When set, all GitHub API interactions (installation
+lookups, trust policy reads, token exchanges, and token revocations) will target
+the configured endpoint instead of the public GitHub API.
 
 ### Best Practices
 
@@ -177,12 +236,12 @@ The following permissions are the currently enabled in octo-Sts and will be avai
 
 #### Organization Permissions
 
-- **API Insights**: `No Access`
+- **API Insights**: `Read-only`
 - **Administration**: `Read/Write`
 - **Blocking users**: `No Access`
-- **Custom organizations roles**: `No Access`
+- **Custom organizations roles**: `Read and write`
 - **Custom properties**: `No Access`
-- **Custom repository roles**: `No Access`
+- **Custom repository roles**: `Read and write`
 - **Events**: `Read-only`
 - **GitHub Copilot Business**: `No Access`
 - **Knowledge bases**: `No Access`

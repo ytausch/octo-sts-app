@@ -92,6 +92,159 @@ func TestBaseConfig(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			// Azure key identifiers are self-describing and travel in
+			// KMS_KEYS, so they are validated by the generic KMS rules.
+			name: "AKV keys supplied via KMS_KEYS",
+			envVars: map[string]string{
+				"PORT":           "8080",
+				"GITHUB_APP_IDS": "12345678,87654321",
+				"KMS_PROVIDER":   "akv",
+				"KMS_KEYS":       "https://vault-a.vault.azure.net/keys/key-1,https://vault-b.vault.azure.net/keys/key-2/v2",
+			},
+			wantErr: false,
+		},
+		{
+			name: "AKV keys length mismatch with app count",
+			envVars: map[string]string{
+				"PORT":           "8080",
+				"GITHUB_APP_IDS": "12345678,87654321",
+				"KMS_PROVIDER":   "akv",
+				"KMS_KEYS":       "https://vault-a.vault.azure.net/keys/key-1",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Quota floors valid",
+			envVars: map[string]string{
+				"PORT":                     "8080",
+				"GITHUB_APP_IDS":           "12345678",
+				"OCTOSTS_QUOTA_FLOOR_HARD": "1500",
+				"OCTOSTS_QUOTA_FLOOR_SOFT": "15000",
+				"OCTOSTS_QUOTA_STALE":      "5m",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Quota soft floor must be >= hard floor",
+			envVars: map[string]string{
+				"PORT":                     "8080",
+				"GITHUB_APP_IDS":           "12345678",
+				"OCTOSTS_QUOTA_FLOOR_HARD": "5000",
+				"OCTOSTS_QUOTA_FLOOR_SOFT": "1500",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Quota floors equal is allowed",
+			envVars: map[string]string{
+				"PORT":                     "8080",
+				"GITHUB_APP_IDS":           "12345678",
+				"OCTOSTS_QUOTA_FLOOR_HARD": "1500",
+				"OCTOSTS_QUOTA_FLOOR_SOFT": "1500",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Negative floor rejected",
+			envVars: map[string]string{
+				"PORT":                     "8080",
+				"GITHUB_APP_IDS":           "12345678",
+				"OCTOSTS_QUOTA_FLOOR_HARD": "-1",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Zero stale duration rejected",
+			envVars: map[string]string{
+				"PORT":                "8080",
+				"GITHUB_APP_IDS":      "12345678",
+				"OCTOSTS_QUOTA_STALE": "0s",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Negative stale duration rejected",
+			envVars: map[string]string{
+				"PORT":                "8080",
+				"GITHUB_APP_IDS":      "12345678",
+				"OCTOSTS_QUOTA_STALE": "-5m",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Sticky store firestore valid",
+			envVars: map[string]string{
+				"PORT":                               "8080",
+				"GITHUB_APP_IDS":                     "12345678",
+				"OCTOSTS_STICKY_STORE":               "firestore",
+				"OCTOSTS_STICKY_STORE_FIRESTORE_TTL": "1h",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Sticky store disabled by default",
+			envVars: map[string]string{
+				"PORT":           "8080",
+				"GITHUB_APP_IDS": "12345678",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Sticky store invalid backend rejected",
+			envVars: map[string]string{
+				"PORT":                 "8080",
+				"GITHUB_APP_IDS":       "12345678",
+				"OCTOSTS_STICKY_STORE": "redis",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Sticky store negative TTL rejected",
+			envVars: map[string]string{
+				"PORT":                               "8080",
+				"GITHUB_APP_IDS":                     "12345678",
+				"OCTOSTS_STICKY_STORE":               "firestore",
+				"OCTOSTS_STICKY_STORE_FIRESTORE_TTL": "-1h",
+			},
+			wantErr: true,
+		},
+		{
+			name: "GITHUB_BASE_URL valid HTTPS",
+			envVars: map[string]string{
+				"PORT":            "8080",
+				"GITHUB_APP_IDS":  "12345678",
+				"GITHUB_BASE_URL": "https://github.example.com/api/v3",
+			},
+			wantErr: false,
+		},
+		{
+			name: "GITHUB_BASE_URL rejects HTTP",
+			envVars: map[string]string{
+				"PORT":            "8080",
+				"GITHUB_APP_IDS":  "12345678",
+				"GITHUB_BASE_URL": "http://github.example.com/api/v3",
+			},
+			wantErr: true,
+		},
+		{
+			name: "GITHUB_BASE_URL rejects invalid URL",
+			envVars: map[string]string{
+				"PORT":            "8080",
+				"GITHUB_APP_IDS":  "12345678",
+				"GITHUB_BASE_URL": "://not-a-url",
+			},
+			wantErr: true,
+		},
+		{
+			name: "GITHUB_BASE_URL empty is allowed",
+			envVars: map[string]string{
+				"PORT":            "8080",
+				"GITHUB_APP_IDS":  "12345678",
+				"GITHUB_BASE_URL": "",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
